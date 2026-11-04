@@ -38,7 +38,9 @@ export const kindOf = (columns: number): Kind => (columns >= WIDE_AT ? 'wide' : 
  * for its [-], and a cell is 12 px (the app's code font advance). Rounds down,
  * so the card never runs past the slot; the few pixels left are band colour.
  */
-export const bandPx = (columns: number): number => (columns + 5) * 12
+// The desktop app's code font is narrower than 12 px a cell: at 12 the card came out
+// wider than its slot and was shrunk to fit, leaving small text and an empty right side.
+export const bandPx = (columns: number): number => (columns + 5) * 9
 
 // $ per million tokens: input, and the cache read. The 1-hour cache write is 2 times
 // input. Haiku 5.5 is $0.10 up to 100K tokens and $0.50 above; long sessions use the
@@ -208,7 +210,10 @@ type TextOpts = { size?: number; w?: number; fill?: string; ls?: number; anchor?
 /** The gap between the row and the card, drawn inside the card. */
 const CARD_TOP = 6
 
-export const cardSvg = (v: CacheView, kind: Kind, W: number): { source: string; w: number; h: number; alt: string } => {
+/** One used row of the context breakdown, as /context lists it. */
+export type CtxRow = { name: string; tokens: number }
+
+export const cardSvg = (v: CacheView, kind: Kind, W: number, rows: CtxRow[] = []): { source: string; w: number; h: number; alt: string } => {
   const mode = v.mode
   const cold = mode === 'cold'
   const HUEM = HUE[mode]
@@ -297,14 +302,47 @@ export const cardSvg = (v: CacheView, kind: Kind, W: number): { source: string; 
     return g
   }
 
+  // What fills the context: a stacked bar, then the biggest rows by tokens.
+  const zoneCtx = (x: number, y: number, w: number) => {
+    const COLS = [HUE.warm, ORANGE, YELLOW, HUE.cold, MUTED]
+    let g = t(x, y + 30, 'CONTEXT BREAKDOWN', { ls: 1.4 })
+    const used = rows.reduce((a, r) => a + r.tokens, 0)
+    if (used <= 0) return g + t(x, y + 60, 'measuring…', { size: 12, w: 500 })
+    const top = [...rows].sort((a, b) => b.tokens - a.tokens)
+    const shown = top.slice(0, 4)
+    const rest = top.slice(4).reduce((a, r) => a + r.tokens, 0)
+    if (rest > 0) shown.push({ name: 'Other', tokens: rest })
+    let bx = x
+    shown.forEach((r, i) => {
+      const bw = Math.max(2, (r.tokens / used) * w)
+      g += `<rect x="${bx}" y="${y + 40}" width="${Math.max(1, bw - 2)}" height="8" rx="2" fill="${COLS[i % COLS.length]}"/>`
+      bx += bw
+    })
+    shown.forEach((r, i) => {
+      const ry = y + 66 + i * 15
+      g += `<circle cx="${x + 4}" cy="${ry - 4}" r="3.5" fill="${COLS[i % COLS.length]}"/>`
+      g += t(x + 14, ry, r.name, { size: 12, w: 500, fill: TEXT })
+      g += t(x + w, ry, tok(r.tokens), { size: 12, w: 600, fill: MUTED, anchor: 'end' })
+    })
+    return g
+  }
+
   let H: number
   let g: string
   if (kind === 'wide') {
     H = 132
     // 92 px a model column on the page's full width; tighter near the switch point,
     // where the last column still needs about 90 px for its price.
-    const colW = Math.min(92, Math.floor((W - 640 - 103) / 3))
-    g = zoneIdle(13, 0, 290, { header: true }) + vline(314, 18, H - 36) + zoneSize(340, 0, 260) + vline(614, 18, H - 36) + zoneCost(640, 0, colW)
+    // Three zones over the full width: cache size, context breakdown, model costs.
+    // No idle rail: the chip on the row already shows the minutes left.
+    const gap = 26
+    const sizeW = Math.max(220, Math.round((W - 26) * 0.27))
+    const ctxX = 13 + sizeW + gap
+    const ctxW = Math.max(200, Math.round((W - 26) * 0.3))
+    const costX = ctxX + ctxW + gap
+    const colW = Math.max(70, Math.floor((W - costX - 13) / 4))
+    g = zoneSize(13, 0, sizeW) + vline(13 + sizeW + 12, 18, H - 36) +
+      zoneCtx(ctxX, 0, ctxW) + vline(ctxX + ctxW + 12, 18, H - 36) + zoneCost(costX, 0, colW)
   } else if (kind === 'stacked') {
     H = 266
     g =

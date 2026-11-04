@@ -371,7 +371,10 @@ export const register: Register = on => {
 
     let card = null
     if (open && Svg) {
-      const c = cardSvg(view, kind, bandPx(columns))
+      // The breakdown is estimated locally ('summary'): no API call, no token cost.
+      const bd = (await $.session.usage({ breakdown: 'summary' })).context.breakdown
+      const ctxRows = (bd?.categories ?? []).filter(r => r.kind === 'used' && r.tokens > 0).map(r => ({ name: r.name, tokens: r.tokens }))
+      const c = cardSvg(view, kind, bandPx(columns), ctxRows)
       card = (
         <Box key="card" flexDirection="row">
           <Svg source={c.source} alt={c.alt} width={c.w} height={c.h} isInteractive={kind !== 'tight'} />
