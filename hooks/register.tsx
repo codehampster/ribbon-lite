@@ -417,7 +417,8 @@ export const register: Register = on => {
           <Svg key="robo" source={roboSvg(mode, kp.on && !cold ? GREEN : undefined)} alt={cold ? 'Robo, frozen' : 'Robo, bobbing'} width={ROBO_SIZE} height={ROBO_SIZE} isInteractive />,
           <Text key="gap"> </Text>,
           (() => {
-            const c = chipSvg(mode, chipWord)
+            const left = TTL_MIN - view.idleMin
+            const c = chipSvg(mode, chipWord, cold ? undefined : kp.on || left > 10 ? GREEN : left >= 3 ? YELLOW : HUE.warm)
             return <Svg key="chip" source={c.source} alt={cold ? WORD[mode] : `warm, ${chipWord} left`} width={c.w} height={c.h} />
           })(),
         ]
