@@ -437,8 +437,8 @@ export const register: Register = on => {
           <Button key="keep-set" label="Keep" onPress={() => { void read($, keep).then(x => keepNow(`${pad2(x.h ?? 0)}:${pad2(x.m ?? 0)}`)) }} />
         </Box>
         <Text color={MUTED}>  or </Text>
-        {KEEP_PRESETS.map(h => (
-          <Box key={`p${h}`} marginLeft={1}><Button key={`keep-${h}`} label={`${h}h`} onPress={() => { void keepNow(`${h}h`) }} /></Box>
+        {KEEP_PRESETS.map(hrs => (
+          <Box key={`p${hrs}`} marginLeft={1}><Button key={`keep-${hrs}`} label={`${hrs}h`} onPress={() => { void keepNow(`${hrs}h`) }} /></Box>
         ))}
       </Box>
     ) : null
