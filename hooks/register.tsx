@@ -33,43 +33,19 @@ const spend = atom({ plugin: 'ribbon-lite', key: 'spend' } as const, { read: 0, 
 const GREEN = '#7fb069'
 const keep = atom({ plugin: 'ribbon-lite', key: 'keep' } as const, { on: false, coldSeen: 0, nudged: false } as Keep)
 
-// Keep-warm: the person sets a local time to be warm until; while it is still ahead,
-// one tiny ping goes out whenever the cache would otherwise expire before then (55 min
-// idle). The ping cadence is separate from the deadline. A cold restart costs about as
-// much as 15-19 pings, so the deadline is capped at 14h.
+// Keep-warm: pick 2, 4, 8 or 12 hours; the deadline is then now plus that long. While it
+// is still ahead, one tiny ping goes out whenever the cache would otherwise expire before
+// then (55 min idle). The ping cadence is separate from the deadline. A cold restart costs
+// about as much as 15-19 pings, so 12h is the longest on offer.
 const KEEP_AT_MIN = 55
-const KEEP_LIMIT_MS = 14 * 3_600_000
 const KEEP_PRESETS = [2, 4, 8, 12]
-
-const pad2 = (n: number): string => String(n).padStart(2, '0')
-const HOURS = Array.from({ length: 24 }, (_, i) => ({ value: pad2(i) }))
-const MINUTES = ['00', '15', '30', '45'].map(value => ({ value }))
 /** The picker closes itself after this long without a touch. */
 const EDIT_MS = 20_000
-/** Past this far ahead the robot goes yellow: the pings add up. */
-const LONG_MS = 12 * 3_600_000
 
+const pad2 = (n: number): string => String(n).padStart(2, '0')
 const hhmm = (ms: number): string => {
   const d = new Date(ms)
   return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`
-}
-
-/** "18:30", "1830" or "9" is the next such local time; "4h", "1.5h" or "90m" is that long from now. */
-const parseUntil = (text: string, now: number): number | null => {
-  const t = text.trim().toLowerCase()
-  let m = t.match(/^(\d+(?:\.\d+)?)\s*h(?:ours?)?$/)
-  if (m) return now + Number(m[1]) * 3_600_000
-  m = t.match(/^(\d+)\s*m(?:in)?$/)
-  if (m) return now + Number(m[1]) * 60_000
-  m = t.match(/^(\d{1,2}):?(\d{2})?$/)
-  if (!m) return null
-  const h = Number(m[1])
-  const min = Number(m[2] ?? 0)
-  if (h > 23 || min > 59) return null
-  const d = new Date(now)
-  d.setHours(h, min, 0, 0)
-  if (d.getTime() <= now) d.setDate(d.getDate() + 1)
-  return d.getTime()
 }
 const NUDGE_AT = 70
 const PING = 'Keep-warm ping from ribbon-lite: reply with just "ok".'
@@ -247,7 +223,6 @@ export const register: Register = on => {
     // Svg draws on desktop, mobile and VS Code; the terminal gets the text form.
     // Ask the surface, not the table: the terminal's table still lists Svg.
     const Svg = e.surface !== 'terminal' && 'Svg' in ui ? ui.Svg : null
-    const Select = e.surface !== 'terminal' && 'Select' in ui ? ui.Select : null
     const list = await read($, windows)
     const now = await $.clock.now()
     const view = viewOf(await read($, cache), now)
@@ -411,23 +386,9 @@ export const register: Register = on => {
     // Keep-warm toggle: one glyph before Robo. Off, a click opens the time field; on, it shows
     // the time it is kept warm until, and a click turns it off. On, Robo turns green.
     const kp = await read($, keep)
-    const keepNow = async (text: string) => {
+    const keepFor = async (hours: number) => {
       const t = await $.clock.now()
-      const ms = parseUntil(text, t)
-      if (ms === null) {
-        $.ui.toast('Try a time like 18:30, or a length like 4h.')
-        return
-      }
-      // A deadline inside the hour the cache already has left would keep nothing warm.
-      const c0 = await read($, cache)
-      if (c0 && c0.lastAt > 0 && ms <= c0.lastAt + TTL_MS) {
-        $.ui.toast(`The cache is already warm until ${hhmm(c0.lastAt + TTL_MS)}: pick a later time.`, { timeoutMs: 8000 })
-        await update($, keep, x => ({ ...x, editUntil: t + EDIT_MS }))
-        return
-      }
-      const until = Math.min(ms, t + KEEP_LIMIT_MS)
-      if (until < ms) $.ui.toast('Capped at 14h: past that a cold restart costs less than the pings.', { timeoutMs: 8000 })
-      await update($, keep, x => ({ ...x, on: true, until, editing: false }))
+      await update($, keep, x => ({ ...x, on: true, until: t + hours * 3_600_000, editing: false }))
     }
     // Cold: nothing left to keep warm, so no toggle.
     const keepToggle = cold ? null : (
@@ -437,36 +398,27 @@ export const register: Register = on => {
             const k0 = await read($, keep)
             if (k0.on) return update($, keep, x => ({ ...x, on: false, until: undefined, editing: false }))
             if (k0.editing) return update($, keep, x => ({ ...x, editing: false }))
-            // Opening the picker: start at the first quarter hour after the cache's own hour runs out,
-            // the earliest time that keeps anything warm.
             const t = await $.clock.now()
-            const c1 = await read($, cache)
-            const d = new Date(c1 && c1.lastAt > 0 ? c1.lastAt + TTL_MS : t)
-            d.setSeconds(0, 0)
-            d.setMinutes(Math.floor(d.getMinutes() / 15) * 15 + 15)
-            return update($, keep, x => ({ ...x, editing: true, editUntil: t + EDIT_MS, h: d.getHours(), m: d.getMinutes() }))
+            return update($, keep, x => ({ ...x, editing: true, editUntil: t + EDIT_MS }))
           })()
         }} />
     )
-    const keepRow = Svg && Select && !cold && kp.editing && !kp.on ? (
-      <Box key="keep-edit" flexDirection="row" alignItems="center" alignSelf="flex-end" marginRight={12} marginBottom={1} paddingX={1} backgroundColor={LINE}>
-        <Text color={TEXT} bold>Keep warm until </Text>
-        <Select key="keep-h" options={HOURS} value={pad2(kp.h ?? 0)} onSelect={v => { void $.clock.now().then(t => update($, keep, x => ({ ...x, h: Number(v), editUntil: t + EDIT_MS }))) }} />
-        <Text color={MUTED}> : </Text>
-        <Select key="keep-m" options={MINUTES} value={pad2(kp.m ?? 0)} onSelect={v => { void $.clock.now().then(t => update($, keep, x => ({ ...x, m: Number(v), editUntil: t + EDIT_MS }))) }} />
-        <Box marginLeft={1}>
-          <Button key="keep-set" label="Keep" onPress={() => { void read($, keep).then(x => keepNow(`${pad2(x.h ?? 0)}:${pad2(x.m ?? 0)}`)) }} />
-        </Box>
-        <Text color={MUTED}>  or </Text>
+    // The flag: four choices, each showing the time it would keep the cache warm until.
+    const keepRow = Svg && !cold && kp.editing && !kp.on ? (
+      <Box key="keep-edit" flexDirection="row" alignItems="center" alignSelf="flex-end" marginRight={12} marginBottom={1} paddingX={2} paddingY={0} gap={2} backgroundColor={LINE}>
+        <Text color={MUTED} bold>KEEP WARM</Text>
         {KEEP_PRESETS.map(hrs => (
-          <Box key={`p${hrs}`} marginLeft={1}><Button key={`keep-${hrs}`} label={`${hrs}h`} onPress={() => { void keepNow(`${hrs}h`) }} /></Box>
+          <Button key={`keep-${hrs}`} onPress={() => { void keepFor(hrs) }}>
+            <Text color={TEXT} bold>{`${hrs}h`}</Text>
+            <Text color={MUTED}>{` ${hhmm(now + hrs * 3_600_000)}`}</Text>
+          </Button>
         ))}
       </Box>
     ) : null
     const badge = Svg
       ? [
           keepToggle,
-          <Svg key="robo" source={roboSvg(mode, kp.on && !cold ? ((kp.until ?? 0) - now > LONG_MS ? YELLOW : GREEN) : undefined)} alt={cold ? 'Robo, frozen' : 'Robo, bobbing'} width={ROBO_SIZE} height={ROBO_SIZE} isInteractive />,
+          <Svg key="robo" source={roboSvg(mode, kp.on && !cold ? GREEN : undefined)} alt={cold ? 'Robo, frozen' : 'Robo, bobbing'} width={ROBO_SIZE} height={ROBO_SIZE} isInteractive />,
           <Text key="gap"> </Text>,
           (() => {
             const c = chipSvg(mode, chipWord)
