@@ -192,7 +192,7 @@ export const register: Register = on => {
     const wide = (w: Window, i: number) => {
       const p = parts(w)
       return (
-        <Box key={`w-${i}`} flexDirection="row" flexShrink={0} marginRight={3}>
+        <Box key={`w-${i}`} flexDirection="row" flexShrink={0} marginRight={2}>
           <Text color={MUTED} bold>{p.name} </Text>
           <Text color={p.col}>{p.d.on}</Text>
           <Text color={EMPTY}>{p.d.off}</Text>
@@ -206,7 +206,7 @@ export const register: Register = on => {
     const stacked = (w: Window, i: number) => {
       const p = parts(w)
       return (
-        <Box key={`w-${i}`} flexDirection="column" flexShrink={0} marginRight={3}>
+        <Box key={`w-${i}`} flexDirection="column" flexShrink={0} marginRight={2}>
           <Box flexDirection="row">
             <Text color={MUTED} bold>{p.name} </Text>
             <Text color={p.col}>{p.d.on}</Text>
@@ -228,7 +228,7 @@ export const register: Register = on => {
     )
     const usage = list.length > 0
       ? list.map(isWide ? wide : stacked)
-      : [<Box key="wait" flexShrink={0} marginRight={3}><Text color={MUTED}>waiting for the first reply</Text></Box>]
+      : [<Box key="wait" flexShrink={0} marginRight={2}><Text color={MUTED}>waiting for the first reply</Text></Box>]
 
     // CTX and SESSION, drawn like the usage windows: name, dot bar, bold figure, muted detail.
     const su = await $.session.usage()
@@ -239,7 +239,7 @@ export const register: Register = on => {
     const fed = sp.read + sp.input
     const extra = (k: string, name: string, col: string, n: number | null, fig: string, detail: string) =>
       isWide ? (
-        <Box key={k} flexDirection="row" flexShrink={0} marginRight={3}>
+        <Box key={k} flexDirection="row" flexShrink={0} marginRight={2}>
           <Text color={MUTED} bold>{name} </Text>
           {n !== null ? <Text color={col}>{'●'.repeat(n)}</Text> : null}
           {n !== null ? <Text color={EMPTY}>{'·'.repeat(cells - n)}</Text> : null}
@@ -247,7 +247,7 @@ export const register: Register = on => {
           {detail ? <Text color={MUTED}> · {detail}</Text> : null}
         </Box>
       ) : (
-        <Box key={k} flexDirection="column" flexShrink={0} marginRight={3}>
+        <Box key={k} flexDirection="column" flexShrink={0} marginRight={2}>
           <Box flexDirection="row">
             <Text color={MUTED} bold>{name} </Text>
             {n !== null ? <Text color={col}>{'●'.repeat(n)}</Text> : null}
@@ -260,12 +260,12 @@ export const register: Register = on => {
     if (ctxTokens > 0 && ctxWindow > 0) {
       const pct = Math.min(100, Math.round((ctxTokens / ctxWindow) * 100))
       const n = Math.max(0, Math.min(cells, Math.round((pct / 100) * cells)))
-      usage.push(extra('ctx', 'CTX', ctxColor(pct), n, `${pct}% used`, `${tok(ctxTokens)}/${tok(ctxWindow)}`))
+      usage.push(extra('ctx', 'CTX', ctxColor(pct), n, `${pct}%`, `${tok(ctxTokens)}/${tok(ctxWindow)}`))
     }
     const cost = su.cost?.usd
     if (cost !== undefined || fed > 0) {
-      usage.push(extra('sess', 'SESSION', TEXT, null, cost !== undefined ? usd(cost) : '—',
-        fed > 0 ? `${Math.round((sp.read / fed) * 100)}% cache hit` : ''))
+      usage.push(extra('sess', 'COST', TEXT, null, cost !== undefined ? usd(cost) : '—',
+        fed > 0 ? `${Math.round((sp.read / fed) * 100)}% hit` : ''))
     }
 
     // Before the first reply there is no cache to show: today's band, as it was.
@@ -282,6 +282,8 @@ export const register: Register = on => {
     const cold = mode === 'cold'
     const hue = HUE[mode]
     const mine = mineModel(view)
+    // Warm: the chip itself shows the minutes left, its colour says warm.
+    const chipWord = cold ? WORD[mode] : `${Math.max(0, TTL_MIN - view.idleMin)}m`
     const stored = await read($, fold)
     // Folding needs the card, and the card is a drawing: the terminal stays folded.
     const open = Svg !== null && (stored && stored.mode === mode ? stored.open : cold)
@@ -293,11 +295,11 @@ export const register: Register = on => {
           <Svg key="robo" source={roboSvg(mode)} alt={cold ? 'Robo, frozen' : 'Robo, bobbing'} width={ROBO_SIZE} height={ROBO_SIZE} isInteractive />,
           <Text key="gap"> </Text>,
           (() => {
-            const c = chipSvg(mode)
-            return <Svg key="chip" source={c.source} alt={WORD[mode]} width={c.w} height={c.h} />
+            const c = chipSvg(mode, chipWord)
+            return <Svg key="chip" source={c.source} alt={cold ? WORD[mode] : `warm, ${chipWord} left`} width={c.w} height={c.h} />
           })(),
         ]
-      : [<Text key="chip" backgroundColor={hue} color={INK} bold>{` ${WORD[mode]} `}</Text>]
+      : [<Text key="chip" backgroundColor={hue} color={INK} bold>{` ${chipWord} `}</Text>]
 
     const summary = cold
       ? [
@@ -305,7 +307,7 @@ export const register: Register = on => {
           mine ? <Text key="dot" color={MUTED}> · </Text> : null,
           mine ? <Text key="cost" color={TEXT} bold>{usd(costOf(mine, mode, view.tokens))}</Text> : null,
         ]
-      : [<Text key="left" color={hue} bold>{` ${Math.max(0, TTL_MIN - view.idleMin)}m left`}</Text>]
+      : []
 
     const button = Svg ? (
       <Box key="fold" flexShrink={0} alignItems="flex-start">
@@ -317,7 +319,7 @@ export const register: Register = on => {
     let rows
     if (kind === 'wide') {
       rows = (
-        <Box key="row" flexDirection="row" paddingX={1} alignItems="center">
+        <Box key="row" flexDirection="row" paddingX={1} alignItems="center" flexWrap="wrap">
           {label}
           {usage}
           {open ? null : (
@@ -339,7 +341,7 @@ export const register: Register = on => {
           {open ? null : (
             <Box key="block" flexDirection="column" flexShrink={0} marginRight={2}>
               <Box flexDirection="row" alignItems="center">{badge}</Box>
-              <Text color={hue} bold>{cold ? `${view.idle} idle` : `${Math.max(0, TTL_MIN - view.idleMin)}m left`}</Text>
+              <Text color={hue} bold>{cold ? `${view.idle} idle` : ''}</Text>
               {mine ? (
                 <Box flexDirection="row">
                   <Text color={TEXT} bold>{usd(costOf(mine, mode, view.tokens))}</Text>

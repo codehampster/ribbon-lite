@@ -123,8 +123,8 @@ export const chipShapes = (x: number, y: number, word: string, fill: string, siz
 }
 
 /** The WARM or COLD chip beside Robo in the band's row. */
-export const chipSvg = (mode: Mode): { source: string; w: number; h: number } => {
-  const c = chipShapes(0, 0, WORD[mode], HUE[mode], 13, 1)
+export const chipSvg = (mode: Mode, word: string = WORD[mode]): { source: string; w: number; h: number } => {
+  const c = chipShapes(0, 0, word, HUE[mode], 13, 1)
   return { source: svgDoc(c.w, c.h, c.svg, true), w: c.w, h: c.h }
 }
 
