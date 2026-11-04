@@ -1,0 +1,5 @@
+{
+  "name": "ribbon-lite",
+  "owner": { "name": "codehampster" },
+  "plugins": [{ "name": "ribbon-lite", "source": "./" }]
+}
