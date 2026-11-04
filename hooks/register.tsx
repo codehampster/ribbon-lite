@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { CacheFacts, Fold, Spend, Window } from '../types'
+import type { CacheFacts, Fold, Keep, Spend, Window } from '../types'
 import {
   BG, EMPTY, HUE, INK, MUTED, ORANGE, ROBO_SIZE, TEXT, TTL_MIN, TTL_MS, WORD, YELLOW,
   MODELS, bandPx, cardSvg, chipSvg, costOf, familyOf, fmtIdle, kindOf, mineModel, roboSvg, tok, usd,
@@ -31,6 +31,16 @@ const spend = atom({ plugin: 'ribbon-lite', key: 'spend' } as const, { read: 0, 
 
 // Added to the fork: CTX (context fill, green → yellow → red) and SESSION (cost so far, cache hit rate).
 const GREEN = '#7fb069'
+const keep = atom({ plugin: 'ribbon-lite', key: 'keep' } as const, { on: false, pings: 0, coldSeen: 0, nudged: false } as Keep)
+
+// Keep-warm: one tiny ping before the hour runs out, so a short break does not
+// pay to re-cache the whole context. A cold restart costs about as much as ~15-19
+// pings, so the switch turns itself off after KEEP_MAX pings (well under that).
+const KEEP_AT_MIN = 55
+const KEEP_MAX = 8
+const NUDGE_AT = 70
+const PING = 'Keep-warm ping from ribbon-lite: reply with just "ok".'
+
 const ctxColor = (pct: number): string => (pct >= 80 ? HUE.warm : pct >= 60 ? YELLOW : GREEN)
 
 const NAMES: Record<string, string> = { seven_day: '7D', five_hour: '5H', spend_limit: 'SPEND' }
@@ -90,10 +100,41 @@ const measure = async ($: EngineInterface, lastAt: number | null, model: string 
   }))
 }
 
+/** Once a minute: send the keep-warm ping when due, or say once that the cache went cold. */
+const watch = async ($: EngineInterface): Promise<void> => {
+  const c = await read($, cache)
+  if (!c || c.lastAt <= 0 || c.tokens <= 0) return
+  const now = await $.clock.now()
+  const idleMin = (now - c.lastAt) / 60000
+  const k = await read($, keep)
+  if (k.on && idleMin >= KEEP_AT_MIN && idleMin < TTL_MIN) {
+    if (k.pings >= KEEP_MAX) {
+      await update($, keep, x => ({ ...x, on: false }))
+      $.ui.toast(`Keep-warm off after ${KEEP_MAX} pings: past here a cold restart is cheaper.`, { timeoutMs: 8000 })
+      return
+    }
+    await update($, keep, x => ({ ...x, pings: x.pings + 1 }))
+    await $.prompt.submit({ text: PING })
+    return
+  }
+  if (idleMin >= TTL_MIN && k.coldSeen !== c.lastAt) {
+    await update($, keep, x => ({ ...x, coldSeen: c.lastAt }))
+    const m = MODELS.find(x => x.id === familyOf(c.model))
+    $.ui.toast(`Cache went cold${m ? `: next message re-caches ${tok(c.tokens)} tokens, about ${usd(costOf(m, 'cold', c.tokens))}` : ''}.`, { timeoutMs: 10000 })
+  }
+}
+
 export const register: Register = on => {
+  // A real message resets the keep-warm count; the switch stays as it was.
+  on('prompt.submit', async ($, e, next) => {
+    if (e.text !== PING) await update($, keep, k => (k.pings ? { ...k, pings: 0 } : k))
+    return next(e)
+  })
+
   on('session.start', async ($, e, next) => {
     await pull($)
     $.clock.every(TICK_MS, () => $.ui.invalidate('ui.render'))
+    $.clock.every(60_000, () => { void watch($) })
     return next(e)
   })
 
@@ -114,6 +155,7 @@ export const register: Register = on => {
     if (e.source === 'clear' || e.source === 'compact') {
       await update($, cache, () => null)
       await update($, fold, () => null)
+      await update($, keep, k => ({ ...k, pings: 0, coldSeen: 0, nudged: false }))
     } else if ((e.source === 'resume' || e.source === 'fork') && typeof e.seconds_since_last_response === 'number') {
       const now = await $.clock.now()
       const lastAt = now - e.seconds_since_last_response * 1000
@@ -148,6 +190,13 @@ export const register: Register = on => {
     // turn.step stamps the exact request time; when no step of this turn did, the turn's end is the floor.
     const lastAt = !c || now - c.lastAt > e.durationMs ? now : c.lastAt
     await measure($, lastAt, e.usage?.model ?? null)
+    const ctx = (await $.session.usage()).context
+    const pct = ctx.tokens && ctx.window ? (ctx.tokens / ctx.window) * 100 : 0
+    const k = await read($, keep)
+    if (pct >= NUDGE_AT && !k.nudged) {
+      await update($, keep, x => ({ ...x, nudged: true }))
+      $.ui.toast(`Context is ${Math.round(pct)}% full: a fresh session for the next task keeps turns cheap.`, { timeoutMs: 10000 })
+    }
     return r
   })
 
@@ -294,9 +343,17 @@ export const register: Register = on => {
     const toggle = () =>
       update($, fold, f => ({ mode, open: !(f && f.mode === mode ? f.open : mode === 'cold') }))
 
+    // Keep-warm toggle: one glyph before Robo; on, Robo turns green and the count shows.
+    const kp = await read($, keep)
+    // Cold: nothing left to keep warm, so no toggle.
+    const keepToggle = cold ? null : (
+      <Button key="keep" plain label={kp.on ? '◉' : '○'} dimColor={!kp.on}
+        onPress={() => update($, keep, x => ({ ...x, on: !x.on, pings: 0 }))} />
+    )
     const badge = Svg
       ? [
-          <Svg key="robo" source={roboSvg(mode)} alt={cold ? 'Robo, frozen' : 'Robo, bobbing'} width={ROBO_SIZE} height={ROBO_SIZE} isInteractive />,
+          keepToggle,
+          <Svg key="robo" source={roboSvg(mode, kp.on && !cold ? GREEN : undefined)} alt={cold ? 'Robo, frozen' : 'Robo, bobbing'} width={ROBO_SIZE} height={ROBO_SIZE} isInteractive />,
           <Text key="gap"> </Text>,
           (() => {
             const c = chipSvg(mode, chipWord)

@@ -152,11 +152,11 @@ const pixels = (u: number, fill: string): string => {
 }
 
 /** Robo in a box `size` pixels square, top-left at x, y. SMIL only, so the Svg needs isInteractive. */
-export const roboShapes = (x: number, y: number, size: number, mode: Mode): string => {
+export const roboShapes = (x: number, y: number, size: number, mode: Mode, tint?: string): string => {
   const ease = 'calcMode="spline" keyTimes="0;0.5;1" keySplines=".45 0 .55 1;.45 0 .55 1"'
   if (mode === 'warm') {
     // Robo takes the WARM chip's red, so the two read as one badge.
-    const ROBO = HUE.warm
+    const ROBO = tint ?? HUE.warm
     const u = size / 10
     const ox = x + u
     const oy = y + 1.6 * u
@@ -202,7 +202,7 @@ export const roboShapes = (x: number, y: number, size: number, mode: Mode): stri
 
 /** Robo beside the chip in the band's row. */
 export const ROBO_SIZE = 26
-export const roboSvg = (mode: Mode): string => svgDoc(ROBO_SIZE, ROBO_SIZE, roboShapes(0, 0, ROBO_SIZE, mode), false)
+export const roboSvg = (mode: Mode, tint?: string): string => svgDoc(ROBO_SIZE, ROBO_SIZE, roboShapes(0, 0, ROBO_SIZE, mode, tint), false)
 
 // ---------- The card, laid out for the band's width ----------
 type TextOpts = { size?: number; w?: number; fill?: string; ls?: number; anchor?: string }

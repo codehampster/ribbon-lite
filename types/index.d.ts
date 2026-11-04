@@ -10,8 +10,11 @@ export type Fold = { mode: 'warm' | 'cold'; open: boolean }
 /** Input tokens this session: served from cache vs sent fresh (uncached + cache writes). */
 export type Spend = { read: number; input: number }
 
+/** Keep-warm switch and ping count, the last cold flip announced, and whether the context nudge fired. */
+export type Keep = { on: boolean; pings: number; coldSeen: number; nudged: boolean }
+
 declare module 'claude-code' {
   interface PluginState {
-    'ribbon-lite': { windows: Window[]; cache: CacheFacts | null; fold: Fold | null; spend: Spend }
+    'ribbon-lite': { windows: Window[]; cache: CacheFacts | null; fold: Fold | null; spend: Spend; keep: Keep }
   }
 }
