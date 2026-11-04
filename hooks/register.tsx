@@ -31,21 +31,41 @@ const spend = atom({ plugin: 'ribbon-lite', key: 'spend' } as const, { read: 0, 
 
 // Added to the fork: CTX (context fill, green → yellow → red) and SESSION (cost so far, cache hit rate).
 const GREEN = '#7fb069'
-const keep = atom({ plugin: 'ribbon-lite', key: 'keep' } as const, { on: false, pings: 0, coldSeen: 0, nudged: false } as Keep)
+const keep = atom({ plugin: 'ribbon-lite', key: 'keep' } as const, { on: false, coldSeen: 0, nudged: false } as Keep)
 
-// Keep-warm: one tiny ping before the hour runs out, so a short break does not
-// pay to re-cache the whole context. A cold restart costs about as much as ~15-19
-// pings, so the switch turns itself off after KEEP_MAX pings (well under that).
+// Keep-warm: the person sets a local time to be warm until; while it is still ahead,
+// one tiny ping goes out whenever the cache would otherwise expire before then (55 min
+// idle). The ping cadence is separate from the deadline. A cold restart costs about as
+// much as 15-19 pings, so the deadline is capped at 14h.
 const KEEP_AT_MIN = 55
-const KEEP_MAX = 8
-/** Hours the toggle cycles through on each click, then back off. */
-const KEEP_STEPS = [2, 4, 8, 12]
-const capOf = (k: Keep): number => k.cap ?? KEEP_MAX
+const KEEP_LIMIT_MS = 14 * 3_600_000
+const KEEP_PRESETS = [2, 4, 8, 12]
 
-/** When the cache goes cold if every ping lands: the pings still to send, 55 min apart, plus the hour the last one keeps it. A lower bound: a cycle never runs short of 55 min. */
-const warmUntil = (k: Keep, lastAt: number): string => {
-  const d = new Date(lastAt + Math.max(0, capOf(k) - k.pings) * KEEP_AT_MIN * 60_000 + TTL_MS)
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+const pad2 = (n: number): string => String(n).padStart(2, '0')
+const HOURS = Array.from({ length: 24 }, (_, i) => ({ value: pad2(i) }))
+const MINUTES = [{ value: '00' }, { value: '30' }]
+
+const hhmm = (ms: number): string => {
+  const d = new Date(ms)
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`
+}
+
+/** "18:30", "1830" or "9" is the next such local time; "4h", "1.5h" or "90m" is that long from now. */
+const parseUntil = (text: string, now: number): number | null => {
+  const t = text.trim().toLowerCase()
+  let m = t.match(/^(\d+(?:\.\d+)?)\s*h(?:ours?)?$/)
+  if (m) return now + Number(m[1]) * 3_600_000
+  m = t.match(/^(\d+)\s*m(?:in)?$/)
+  if (m) return now + Number(m[1]) * 60_000
+  m = t.match(/^(\d{1,2}):?(\d{2})?$/)
+  if (!m) return null
+  const h = Number(m[1])
+  const min = Number(m[2] ?? 0)
+  if (h > 23 || min > 59) return null
+  const d = new Date(now)
+  d.setHours(h, min, 0, 0)
+  if (d.getTime() <= now) d.setDate(d.getDate() + 1)
+  return d.getTime()
 }
 const NUDGE_AT = 70
 const PING = 'Keep-warm ping from ribbon-lite: reply with just "ok".'
@@ -116,15 +136,20 @@ const watch = async ($: EngineInterface): Promise<void> => {
   const now = await $.clock.now()
   const idleMin = (now - c.lastAt) / 60000
   const k = await read($, keep)
-  if (k.on && idleMin >= KEEP_AT_MIN && idleMin < TTL_MIN) {
-    if (k.pings >= capOf(k)) {
-      await update($, keep, x => ({ ...x, on: false }))
-      $.ui.toast(`Keep-warm off after ${capOf(k)}h of pings.`, { timeoutMs: 8000 })
+  if (k.on) {
+    const until = k.until ?? 0
+    const off = () => update($, keep, x => ({ ...x, on: false, until: undefined }))
+    if (now >= until) {
+      await off()
+    } else if (c.lastAt + TTL_MS >= until) {
+      await off()
+      $.ui.toast(`Keep-warm done: the cache stays warm through ${hhmm(c.lastAt + TTL_MS)}.`, { timeoutMs: 8000 })
+    } else if (idleMin >= TTL_MIN) {
+      await off() // went cold while the machine was away; the toast below says so
+    } else if (idleMin >= KEEP_AT_MIN) {
+      await $.prompt.submit({ text: PING })
       return
     }
-    await update($, keep, x => ({ ...x, pings: x.pings + 1 }))
-    await $.prompt.submit({ text: PING })
-    return
   }
   if (idleMin >= TTL_MIN && k.coldSeen !== c.lastAt) {
     await update($, keep, x => ({ ...x, coldSeen: c.lastAt }))
@@ -134,12 +159,6 @@ const watch = async ($: EngineInterface): Promise<void> => {
 }
 
 export const register: Register = on => {
-  // A real message resets the keep-warm count; the switch stays as it was.
-  on('prompt.submit', async ($, e, next) => {
-    if (e.text !== PING) await update($, keep, k => (k.pings ? { ...k, pings: 0 } : k))
-    return next(e)
-  })
-
   on('session.start', async ($, e, next) => {
     await pull($)
     $.clock.every(TICK_MS, () => $.ui.invalidate('ui.render'))
@@ -164,7 +183,7 @@ export const register: Register = on => {
     if (e.source === 'clear' || e.source === 'compact') {
       await update($, cache, () => null)
       await update($, fold, () => null)
-      await update($, keep, k => ({ ...k, pings: 0, coldSeen: 0, nudged: false }))
+      await update($, keep, k => ({ ...k, coldSeen: 0, nudged: false }))
     } else if ((e.source === 'resume' || e.source === 'fork') && typeof e.seconds_since_last_response === 'number') {
       const now = await $.clock.now()
       const lastAt = now - e.seconds_since_last_response * 1000
@@ -217,6 +236,7 @@ export const register: Register = on => {
     // Svg draws on desktop, mobile and VS Code; the terminal gets the text form.
     // Ask the surface, not the table: the terminal's table still lists Svg.
     const Svg = e.surface !== 'terminal' && 'Svg' in ui ? ui.Svg : null
+    const Select = e.surface !== 'terminal' && 'Select' in ui ? ui.Select : null
     const list = await read($, windows)
     const now = await $.clock.now()
     const view = viewOf(await read($, cache), now)
@@ -377,18 +397,51 @@ export const register: Register = on => {
     const toggle = () =>
       update($, fold, f => ({ mode, open: !(f && f.mode === mode ? f.open : mode === 'cold') }))
 
-    // Keep-warm toggle: one glyph before Robo; on, Robo turns green and the count shows.
+    // Keep-warm toggle: one glyph before Robo. Off, a click opens the time field; on, it shows
+    // the time it is kept warm until, and a click turns it off. On, Robo turns green.
     const kp = await read($, keep)
+    const keepNow = async (text: string) => {
+      const t = await $.clock.now()
+      const ms = parseUntil(text, t)
+      if (ms === null) {
+        $.ui.toast('Try a time like 18:30, or a length like 4h.')
+        return
+      }
+      const until = Math.min(ms, t + KEEP_LIMIT_MS)
+      if (until < ms) $.ui.toast('Capped at 14h: past that a cold restart costs less than the pings.', { timeoutMs: 8000 })
+      await update($, keep, x => ({ ...x, on: true, until, editing: false }))
+    }
     // Cold: nothing left to keep warm, so no toggle.
     const keepToggle = cold ? null : (
-      <Button key="keep" plain label={kp.on ? (cf && cf.lastAt > 0 ? `◉→${warmUntil(kp, cf.lastAt)}` : `◉${capOf(kp)}h`) : '○'} dimColor={!kp.on}
-        onPress={() => update($, keep, x => {
-          // Each click steps 2h → 4h → 8h → 12h → off.
-          const i = x.on ? KEEP_STEPS.indexOf(capOf(x)) : -1
-          const step = KEEP_STEPS[i + 1]
-          return step ? { ...x, on: true, cap: step, pings: 0 } : { ...x, on: false, pings: 0 }
-        })} />
+      <Button key="keep" plain label={kp.on && kp.until ? `◉→${hhmm(kp.until)}` : kp.editing ? '×' : '○'} dimColor={!kp.on}
+        onPress={() => {
+          void (async () => {
+            const k0 = await read($, keep)
+            if (k0.on) return update($, keep, x => ({ ...x, on: false, until: undefined, editing: false }))
+            if (k0.editing) return update($, keep, x => ({ ...x, editing: false }))
+            // Opening the picker: start at the next half hour.
+            const d = new Date(await $.clock.now())
+            d.setSeconds(0, 0)
+            d.setMinutes(d.getMinutes() <= 0 ? 0 : d.getMinutes() <= 30 ? 30 : 60)
+            return update($, keep, x => ({ ...x, editing: true, h: d.getHours(), m: d.getMinutes() }))
+          })()
+        }} />
     )
+    const keepRow = Svg && Select && !cold && kp.editing && !kp.on ? (
+      <Box key="keep-edit" flexDirection="row" paddingX={1} alignItems="center">
+        <Text color={MUTED}>Keep warm until </Text>
+        <Select key="keep-h" options={HOURS} value={pad2(kp.h ?? 0)} onSelect={v => { void update($, keep, x => ({ ...x, h: Number(v) })) }} />
+        <Text color={MUTED}> : </Text>
+        <Select key="keep-m" options={MINUTES} value={pad2(kp.m ?? 0)} onSelect={v => { void update($, keep, x => ({ ...x, m: Number(v) })) }} />
+        <Box marginLeft={1}>
+          <Button key="keep-set" label="Keep" onPress={() => { void read($, keep).then(x => keepNow(`${pad2(x.h ?? 0)}:${pad2(x.m ?? 0)}`)) }} />
+        </Box>
+        <Text color={MUTED}>  or </Text>
+        {KEEP_PRESETS.map(h => (
+          <Box key={`p${h}`} marginLeft={1}><Button key={`keep-${h}`} label={`${h}h`} onPress={() => { void keepNow(`${h}h`) }} /></Box>
+        ))}
+      </Box>
+    ) : null
     const badge = Svg
       ? [
           keepToggle,
@@ -484,6 +537,7 @@ export const register: Register = on => {
     return (
       <Box flexDirection="column" backgroundColor={BG} marginBottom={1}>
         {rows}
+        {keepRow}
         {card}
       </Box>
     )
