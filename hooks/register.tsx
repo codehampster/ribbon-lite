@@ -224,7 +224,32 @@ export const register: Register = on => {
     }
 
     const columns = e.props.bodyColumns ?? e.viewport?.columns ?? 100
-    const kind = kindOf(columns)
+    // Wide only when the whole row fits; otherwise stack, so nothing wraps onto a second line.
+    // Rough cell count: label, each window, CTX, API with its detail, the cache badge and Show.
+    const fitsWide = async (): Promise<boolean> => {
+      const u0 = await $.session.usage()
+      const c0 = await read($, cache)
+      const s0 = await read($, spend)
+      const t0 = u0.context.tokens ?? c0?.tokens ?? 0
+      const w0 = u0.context.window || c0?.window || 0
+      let est = 0 // the wide row drops the USAGE label
+      for (const w of list) {
+        const left = Math.max(0, Math.round((100 - w.percentUsed) * 10) / 10)
+        est += 3 + CELLS + ` ${left}% left`.length + (w.resetsAt ? ` · ${fmtReset(w.resetsAt, now)}`.length : 0) + 2
+      }
+      if (t0 > 0 && w0 > 0) est += 4 + CELLS + ` ${Math.round((t0 / w0) * 100)}% · ${tok(t0)}/${tok(w0)}`.length + 2
+      const fed0 = s0.read + s0.input
+      if (u0.cost?.usd !== undefined || fed0 > 0) {
+        const m0 = MODELS.find(x => x.id === familyOf(c0?.model ?? null))
+        const sv = m0 ? (s0.read / 1e6) * (m0.input - m0.read) : 0
+        const hit = fed0 > 0 ? ` · ${Math.round((s0.read / fed0) * 100)}% hit` : ''
+        est += 4 + usd(u0.cost?.usd ?? 0).length + hit.length + (sv >= 0.01 ? ` · saved ${usd(sv)}`.length : 0) + 2
+      }
+      est += 5 + 3 + 6 + 7 // toggle, robo, chip, Show
+      // The desktop's proportional font draws this text about 15% narrower than a cell each.
+      return (e.surface === 'terminal' ? est : est * 0.85) <= columns
+    }
+    const kind = kindOf(columns) === 'wide' && !(await fitsWide()) ? 'stacked' : kindOf(columns)
     const isWide = kind === 'wide'
     const cells = kind === 'tight' ? TIGHT_CELLS : CELLS
 
@@ -389,7 +414,6 @@ export const register: Register = on => {
     if (kind === 'wide') {
       rows = (
         <Box key="row" flexDirection="row" paddingX={1} alignItems="center" flexWrap="wrap" justifyContent="space-between">
-          {label}
           {usage}
           {open ? null : (
             <Box key="inline" flexDirection="row" flexShrink={0} marginRight={2} alignItems="center">
@@ -452,7 +476,7 @@ export const register: Register = on => {
     }
 
     return (
-      <Box flexDirection="column" backgroundColor={BG}>
+      <Box flexDirection="column" backgroundColor={BG} marginBottom={1}>
         {rows}
         {card}
       </Box>

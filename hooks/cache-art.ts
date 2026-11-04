@@ -62,7 +62,7 @@ export const familyOf = (model: string | null | undefined): string | null => {
 export const coldCost = (m: Model, tokens: number): number => (tokens / 1e6) * m.input * 2
 export const warmCost = (m: Model, tokens: number): number => (tokens / 1e6) * m.read
 export const costOf = (m: Model, mode: Mode, tokens: number): number => (mode === 'cold' ? coldCost(m, tokens) : warmCost(m, tokens))
-export const usd = (n: number): string => '$' + n.toFixed(2)
+export const usd = (n: number): string => '$' + (n >= 100 ? Math.round(n).toLocaleString('en-US') : n.toFixed(2))
 export const tok = (n: number): string => (n >= 1e6 ? `${Number((n / 1e6).toFixed(1))}M` : `${Math.round(n / 1000)}k`)
 
 /** Idle time the way the card writes it: 18m, 2h 5m, 3d 9h. */
