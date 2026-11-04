@@ -1,6 +1,6 @@
 {
   "name": "ribbon-lite",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "A slim band above the prompt: usage left, context fill, prompt cache warm/cold with next-message cost, and session cost with cache hit rate. Fork of robonuggets/ribbon (MIT).",
   "author": { "name": "codehampster", "url": "https://github.com/codehampster" },
   "repository": "https://github.com/codehampster/ribbon-lite",

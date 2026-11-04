@@ -319,7 +319,7 @@ export const register: Register = on => {
     let rows
     if (kind === 'wide') {
       rows = (
-        <Box key="row" flexDirection="row" paddingX={1} alignItems="center" flexWrap="wrap">
+        <Box key="row" flexDirection="row" paddingX={1} alignItems="center" flexWrap="wrap" justifyContent="space-between">
           {label}
           {usage}
           {open ? null : (
@@ -328,7 +328,6 @@ export const register: Register = on => {
               {summary}
             </Box>
           )}
-          {grow}
           {button}
         </Box>
       )

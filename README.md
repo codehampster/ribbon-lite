@@ -4,12 +4,12 @@ A Claude Code mod: one slim band above your prompt showing
 
 - **7D / 5H** — how much of each usage window is left, and when it resets
 - **CTX** — how full the context window is (green → yellow at 60% → red at 80%)
-- **SESSION** — what this session has cost so far, and how much input the prompt cache served
-- **WARM / COLD** — whether the prompt cache is live, minutes left, and what the next message costs (click **Show** for the full card)
+- **COST** — what this session has cost so far, and how much input the prompt cache served (hit %)
+- **Cache chip** — red with minutes left while the prompt cache is warm; blue COLD with idle time and next-message cost once it expires (click **Show** for the full card)
 
 Zero token cost: it only reads figures Claude Code already has.
 
-Forked from [robonuggets/ribbon](https://github.com/robonuggets/ribbon) by Jay E (MIT), with CTX and SESSION added.
+Forked from [robonuggets/ribbon](https://github.com/robonuggets/ribbon) by Jay E (MIT), with CTX and COST added.
 
 ## Install
 
