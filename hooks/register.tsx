@@ -41,6 +41,14 @@ const KEEP_MAX = 8
 /** Hours the toggle cycles through on each click, then back off. */
 const KEEP_STEPS = [2, 4, 8, 12]
 const capOf = (k: Keep): number => k.cap ?? KEEP_MAX
+
+/** When the cache goes cold if every ping lands: the pings still to send, 55 min apart, plus the hour the last one keeps it. A lower bound: a cycle never runs short of 55 min. */
+const warmUntil = (k: Keep, lastAt: number, now: number): string => {
+  const d = new Date(lastAt + Math.max(0, capOf(k) - k.pings) * KEEP_AT_MIN * 60_000 + TTL_MS)
+  const h = d.getHours()
+  const clock = `${h % 12 || 12}:${String(d.getMinutes()).padStart(2, '0')}${h < 12 ? 'a' : 'p'}`
+  return d.toDateString() === new Date(now).toDateString() ? clock : `${clock}+1`
+}
 const NUDGE_AT = 70
 const PING = 'Keep-warm ping from ribbon-lite: reply with just "ok".'
 
@@ -245,7 +253,7 @@ export const register: Register = on => {
         const hit = fed0 > 0 ? ` · ${Math.round((s0.read / fed0) * 100)}% hit` : ''
         est += 4 + usd(u0.cost?.usd ?? 0).length + hit.length + (sv >= 0.01 ? ` · saved ${usd(sv)}`.length : 0) + 2
       }
-      est += 5 + 3 + 6 + 7 // toggle, robo, chip, Show
+      est += 9 + 3 + 6 + 7 // toggle, robo, chip, Show
       // The desktop's proportional font draws this text about 15% narrower than a cell each.
       return (e.surface === 'terminal' ? est : est * 0.85) <= columns
     }
@@ -375,7 +383,7 @@ export const register: Register = on => {
     const kp = await read($, keep)
     // Cold: nothing left to keep warm, so no toggle.
     const keepToggle = cold ? null : (
-      <Button key="keep" plain label={kp.on ? `◉${Math.max(0, capOf(kp) - kp.pings)}h` : '○'} dimColor={!kp.on}
+      <Button key="keep" plain label={kp.on ? (cf && cf.lastAt > 0 ? `◉→${warmUntil(kp, cf.lastAt, now)}` : `◉${capOf(kp)}h`) : '○'} dimColor={!kp.on}
         onPress={() => update($, keep, x => {
           // Each click steps 2h → 4h → 8h → 12h → off.
           const i = x.on ? KEEP_STEPS.indexOf(capOf(x)) : -1
