@@ -405,7 +405,7 @@ export const register: Register = on => {
     )
     // The flag: a short bar of four choices, right above the toggle and robot.
     const keepRow = Svg && !cold && kp.editing && !kp.on ? (
-      <Box key="keep-edit" flexDirection="row" alignSelf="flex-end" marginRight={10} marginY={1} gap={2}>
+      <Box key="keep-edit" flexDirection="row" alignSelf="flex-end" marginRight={10} marginY={1} gap={1}>
         {KEEP_PRESETS.map(hrs => (
           <Button key={`keep-${hrs}`} label={`${hrs}h`} onPress={() => { void keepFor(hrs) }} />
         ))}
