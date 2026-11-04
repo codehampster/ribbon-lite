@@ -3,7 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { CacheFacts, Fold, Keep, Spend, Window } from '../types'
 import {
-  BG, EMPTY, HUE, INK, LINE, MUTED, ORANGE, ROBO_SIZE, TEXT, TTL_MIN, TTL_MS, WORD, YELLOW,
+  BG, EMPTY, HUE, INK, MUTED, ORANGE, ROBO_SIZE, TEXT, TTL_MIN, TTL_MS, WORD, YELLOW,
   MODELS, bandPx, cardSvg, chipSvg, costOf, familyOf, fmtIdle, kindOf, mineModel, roboSvg, tok, usd,
 } from './cache-art'
 import type { CacheView } from './cache-art'
@@ -33,7 +33,7 @@ const spend = atom({ plugin: 'ribbon-lite', key: 'spend' } as const, { read: 0, 
 const GREEN = '#7fb069'
 const keep = atom({ plugin: 'ribbon-lite', key: 'keep' } as const, { on: false, coldSeen: 0, nudged: false } as Keep)
 
-// Keep-warm: pick 2, 4, 8 or 12 hours; the deadline is then now plus that long. While it
+// Keep-warm: pick 2, 4, 8 or 12 hours from a short bar of buttons; the deadline is then now plus that long. While it
 // is still ahead, one tiny ping goes out whenever the cache would otherwise expire before
 // then (55 min idle). The ping cadence is separate from the deadline. A cold restart costs
 // about as much as 15-19 pings, so 12h is the longest on offer.
@@ -403,15 +403,11 @@ export const register: Register = on => {
           })()
         }} />
     )
-    // The flag: four choices, each showing the time it would keep the cache warm until.
+    // The flag: a short bar of four choices, right above the toggle and robot.
     const keepRow = Svg && !cold && kp.editing && !kp.on ? (
-      <Box key="keep-edit" flexDirection="row" alignItems="center" alignSelf="flex-end" marginRight={12} marginBottom={1} paddingX={2} paddingY={0} gap={2} backgroundColor={LINE}>
-        <Text color={MUTED} bold>KEEP WARM</Text>
+      <Box key="keep-edit" flexDirection="row" alignSelf="flex-end" marginRight={11} gap={1}>
         {KEEP_PRESETS.map(hrs => (
-          <Button key={`keep-${hrs}`} onPress={() => { void keepFor(hrs) }}>
-            <Text color={TEXT} bold>{`${hrs}h`}</Text>
-            <Text color={MUTED}>{` ${hhmm(now + hrs * 3_600_000)}`}</Text>
-          </Button>
+          <Button key={`keep-${hrs}`} label={`${hrs}h`} onPress={() => { void keepFor(hrs) }} />
         ))}
       </Box>
     ) : null

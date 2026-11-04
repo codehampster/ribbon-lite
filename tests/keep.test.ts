@@ -27,7 +27,7 @@ const seed = async ($: any, on: any) => {
   await $.classic.SessionStart({ source: 'resume', seconds_since_last_response: 600, context_tokens: 200000, model: 'claude-opus-5-5' })
 }
 
-test('clicking the toggle opens the flag with four choices, each showing its end time', async ($, on) => {
+test('clicking the toggle opens the flag with four plain choices', async ($, on) => {
   await seed($, on)
   const band = await $.ui.mount({ plugin: 'ribbon-lite', surface: 'desktop', component: 'AbovePrompt', props: PROPS })
 
@@ -38,7 +38,7 @@ test('clicking the toggle opens the flag with four choices, each showing its end
   expect((await band.find({ key: 'keep' }))?.props.label).toBe('×')
   for (const h of [2, 4, 8, 12]) {
     expect(await band.find({ key: `keep-${h}` })).toBeDefined()
-    expect(await band.find({ type: 'Text', text: `${h}h` })).toBeDefined()
+    expect((await band.find({ key: `keep-${h}` }))?.props.label).toBe(`${h}h`)
   }
   await band.unmount()
 })
