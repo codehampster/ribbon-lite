@@ -4,7 +4,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { CacheFacts, Fold, Spend, Window } from '../types'
 import {
   BG, EMPTY, HUE, INK, MUTED, ORANGE, ROBO_SIZE, TEXT, TTL_MIN, TTL_MS, WORD, YELLOW,
-  bandPx, cardSvg, chipSvg, costOf, familyOf, fmtIdle, kindOf, mineModel, roboSvg, tok, usd,
+  MODELS, bandPx, cardSvg, chipSvg, costOf, familyOf, fmtIdle, kindOf, mineModel, roboSvg, tok, usd,
 } from './cache-art'
 import type { CacheView } from './cache-art'
 
@@ -264,8 +264,12 @@ export const register: Register = on => {
     }
     const cost = su.cost?.usd
     if (cost !== undefined || fed > 0) {
-      usage.push(extra('sess', 'COST', TEXT, null, cost !== undefined ? usd(cost) : '—',
-        fed > 0 ? `${Math.round((sp.read / fed) * 100)}% hit` : ''))
+      // SAVED: what the cache-read tokens would have cost sent fresh, at your model's API rates.
+      const m = MODELS.find(x => x.id === familyOf(cf?.model ?? null))
+      const saved = m ? (sp.read / 1e6) * (m.input - m.read) : 0
+      const detail = [fed > 0 ? `${Math.round((sp.read / fed) * 100)}% hit` : '', saved >= 0.01 ? `saved ${usd(saved)}` : '']
+        .filter(Boolean).join(' · ')
+      usage.push(extra('sess', 'API', TEXT, null, cost !== undefined ? usd(cost) : '—', detail))
     }
 
     // Before the first reply there is no cache to show: today's band, as it was.
