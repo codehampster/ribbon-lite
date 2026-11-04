@@ -418,7 +418,7 @@ export const register: Register = on => {
           <Text key="gap"> </Text>,
           (() => {
             const left = TTL_MIN - view.idleMin
-            const c = chipSvg(mode, chipWord, cold ? undefined : kp.on || left > 10 ? GREEN : left >= 3 ? YELLOW : HUE.warm)
+            const c = chipSvg(mode, chipWord, cold ? undefined : kp.on || left > 20 ? GREEN : left >= 5 ? YELLOW : HUE.warm)
             return <Svg key="chip" source={c.source} alt={cold ? WORD[mode] : `warm, ${chipWord} left`} width={c.w} height={c.h} />
           })(),
         ]
