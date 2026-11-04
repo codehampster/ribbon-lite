@@ -386,8 +386,10 @@ export const register: Register = on => {
     // Keep-warm toggle: one glyph before Robo. Off, a click opens the time field; on, it shows
     // the time it is kept warm until, and a click turns it off. On, Robo turns green.
     const kp = await read($, keep)
-    // The chip's colour: green while kept warm or over 20m left, yellow to 5m, then red. Robo only shows keep-warm: green on, red off.
+    // The chip's colour: green while kept warm or over 20m left, yellow to 5m, then red. Robo shows the keep-warm timer: red off, green on, yellow for its last 20m.
     const left = TTL_MIN - view.idleMin
+    const nowMs = await $.clock.now()
+    const roboTint = cold || !kp.on ? undefined : kp.until && kp.until - nowMs <= 20 * 60_000 ? YELLOW : GREEN
     const tone = cold ? undefined : kp.on || left > 20 ? GREEN : left >= 5 ? YELLOW : HUE.warm
     const keepFor = async (hours: number) => {
       const t = await $.clock.now()
@@ -417,7 +419,7 @@ export const register: Register = on => {
     const badge = Svg
       ? [
           keepToggle,
-          <Svg key="robo" source={roboSvg(mode, kp.on && !cold ? GREEN : undefined)} alt={cold ? 'Robo, frozen' : 'Robo, bobbing'} width={ROBO_SIZE} height={ROBO_SIZE} isInteractive />,
+          <Svg key="robo" source={roboSvg(mode, roboTint)} alt={cold ? 'Robo, frozen' : 'Robo, bobbing'} width={ROBO_SIZE} height={ROBO_SIZE} isInteractive />,
           <Text key="gap"> </Text>,
           (() => {
             const c = chipSvg(mode, chipWord, tone)
