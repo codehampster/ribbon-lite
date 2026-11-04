@@ -57,3 +57,49 @@ test('pressing Keep sets a deadline from the rolled time, and the toggle turns i
   expect((await band.find({ key: 'keep' }))?.props.label).toBe('○')
   await band.unmount()
 })
+
+test('the picker offers 00, 15, 30 and 45 minutes and opens at the first quarter hour the cache does not already cover', async ($, on) => {
+  await seed($, on) // last reply 10 min ago: the cache is warm until 22:60 -> 23:00 UTC-ish
+  const band = await $.ui.mount({ plugin: 'ribbon-lite', surface: 'desktop', component: 'AbovePrompt', props: PROPS })
+  await band.press({ key: 'keep' })
+  const minutes = await band.find({ key: 'keep-m' })
+  expect((minutes?.props.options as { value: string }[]).map(o => o.value)).toEqual(['00', '15', '30', '45'])
+  await band.unmount()
+})
+
+test('a deadline inside the hour the cache already has left is refused and the picker stays open', async ($, on) => {
+  await seed($, on)
+  const band = await $.ui.mount({ plugin: 'ribbon-lite', surface: 'desktop', component: 'AbovePrompt', props: PROPS })
+  await band.press({ key: 'keep' })
+  // 10 minutes ago + 60: warm for 50 more. Pick the current hour and minute 00..45 that is still inside it.
+  const nowMs = NOW
+  const inside = new Date(nowMs + 20 * 60_000)
+  await band.select({ key: 'keep-h', value: String(inside.getHours()).padStart(2, '0') })
+  await band.select({ key: 'keep-m', value: String(Math.floor(inside.getMinutes() / 15) * 15).padStart(2, '0') })
+  await band.press({ key: 'keep-set' })
+  expect((await band.find({ key: 'keep' }))?.props.label).toBe('×')
+  expect(await band.find({ key: 'keep-h' })).toBeDefined()
+  await band.unmount()
+})
+
+test('a deadline more than 12 hours out turns the robot yellow, and a nearer one green', async ($, on) => {
+  await seed($, on)
+  const band = await $.ui.mount({ plugin: 'ribbon-lite', surface: 'desktop', component: 'AbovePrompt', props: PROPS })
+
+  await band.press({ key: 'keep' })
+  await band.press({ key: 'keep-8' })
+  const near = JSON.stringify(await band.findAll({ type: 'Svg' }))
+  expect(near).toContain('7fb069')
+  expect(near).not.toContain('f5a623')
+
+  await band.press({ key: 'keep' }) // off
+  await band.press({ key: 'keep' }) // open
+  const far = new Date(NOW + 13 * 3_600_000)
+  await band.select({ key: 'keep-h', value: String(far.getHours()).padStart(2, '0') })
+  await band.select({ key: 'keep-m', value: String(Math.floor(far.getMinutes() / 15) * 15).padStart(2, '0') })
+  await band.press({ key: 'keep-set' })
+  const long = JSON.stringify(await band.findAll({ type: 'Svg' }))
+  expect(long).toContain('f5a623')
+  expect(long).not.toContain('7fb069')
+  await band.unmount()
+})

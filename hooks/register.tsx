@@ -3,7 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { CacheFacts, Fold, Keep, Spend, Window } from '../types'
 import {
-  BG, EMPTY, HUE, INK, MUTED, ORANGE, ROBO_SIZE, TEXT, TTL_MIN, TTL_MS, WORD, YELLOW,
+  BG, EMPTY, HUE, INK, LINE, MUTED, ORANGE, ROBO_SIZE, TEXT, TTL_MIN, TTL_MS, WORD, YELLOW,
   MODELS, bandPx, cardSvg, chipSvg, costOf, familyOf, fmtIdle, kindOf, mineModel, roboSvg, tok, usd,
 } from './cache-art'
 import type { CacheView } from './cache-art'
@@ -43,7 +43,11 @@ const KEEP_PRESETS = [2, 4, 8, 12]
 
 const pad2 = (n: number): string => String(n).padStart(2, '0')
 const HOURS = Array.from({ length: 24 }, (_, i) => ({ value: pad2(i) }))
-const MINUTES = [{ value: '00' }, { value: '30' }]
+const MINUTES = ['00', '15', '30', '45'].map(value => ({ value }))
+/** The picker closes itself after this long without a touch. */
+const EDIT_MS = 20_000
+/** Past this far ahead the robot goes yellow: the pings add up. */
+const LONG_MS = 12 * 3_600_000
 
 const hhmm = (ms: number): string => {
   const d = new Date(ms)
@@ -129,6 +133,12 @@ const measure = async ($: EngineInterface, lastAt: number | null, model: string 
   }))
 }
 
+/** Close the picker once it has sat untouched for EDIT_MS. */
+const closePicker = async ($: EngineInterface): Promise<void> => {
+  const k = await read($, keep)
+  if (k.editing && (await $.clock.now()) > (k.editUntil ?? 0)) await update($, keep, x => ({ ...x, editing: false }))
+}
+
 /** Once a minute: send the keep-warm ping when due, or say once that the cache went cold. */
 const watch = async ($: EngineInterface): Promise<void> => {
   const c = await read($, cache)
@@ -163,6 +173,7 @@ export const register: Register = on => {
     await pull($)
     $.clock.every(TICK_MS, () => $.ui.invalidate('ui.render'))
     $.clock.every(60_000, () => { void watch($) })
+    $.clock.every(5_000, () => { void closePicker($) })
     return next(e)
   })
 
@@ -407,6 +418,13 @@ export const register: Register = on => {
         $.ui.toast('Try a time like 18:30, or a length like 4h.')
         return
       }
+      // A deadline inside the hour the cache already has left would keep nothing warm.
+      const c0 = await read($, cache)
+      if (c0 && c0.lastAt > 0 && ms <= c0.lastAt + TTL_MS) {
+        $.ui.toast(`The cache is already warm until ${hhmm(c0.lastAt + TTL_MS)}: pick a later time.`, { timeoutMs: 8000 })
+        await update($, keep, x => ({ ...x, editUntil: t + EDIT_MS }))
+        return
+      }
       const until = Math.min(ms, t + KEEP_LIMIT_MS)
       if (until < ms) $.ui.toast('Capped at 14h: past that a cold restart costs less than the pings.', { timeoutMs: 8000 })
       await update($, keep, x => ({ ...x, on: true, until, editing: false }))
@@ -419,20 +437,23 @@ export const register: Register = on => {
             const k0 = await read($, keep)
             if (k0.on) return update($, keep, x => ({ ...x, on: false, until: undefined, editing: false }))
             if (k0.editing) return update($, keep, x => ({ ...x, editing: false }))
-            // Opening the picker: start at the next half hour.
-            const d = new Date(await $.clock.now())
+            // Opening the picker: start at the first quarter hour after the cache's own hour runs out,
+            // the earliest time that keeps anything warm.
+            const t = await $.clock.now()
+            const c1 = await read($, cache)
+            const d = new Date(c1 && c1.lastAt > 0 ? c1.lastAt + TTL_MS : t)
             d.setSeconds(0, 0)
-            d.setMinutes(d.getMinutes() <= 0 ? 0 : d.getMinutes() <= 30 ? 30 : 60)
-            return update($, keep, x => ({ ...x, editing: true, h: d.getHours(), m: d.getMinutes() }))
+            d.setMinutes(Math.floor(d.getMinutes() / 15) * 15 + 15)
+            return update($, keep, x => ({ ...x, editing: true, editUntil: t + EDIT_MS, h: d.getHours(), m: d.getMinutes() }))
           })()
         }} />
     )
     const keepRow = Svg && Select && !cold && kp.editing && !kp.on ? (
-      <Box key="keep-edit" flexDirection="row" paddingX={1} alignItems="center">
-        <Text color={MUTED}>Keep warm until </Text>
-        <Select key="keep-h" options={HOURS} value={pad2(kp.h ?? 0)} onSelect={v => { void update($, keep, x => ({ ...x, h: Number(v) })) }} />
+      <Box key="keep-edit" flexDirection="row" alignItems="center" alignSelf="flex-end" marginRight={12} marginBottom={1} paddingX={1} backgroundColor={LINE}>
+        <Text color={TEXT} bold>Keep warm until </Text>
+        <Select key="keep-h" options={HOURS} value={pad2(kp.h ?? 0)} onSelect={v => { void $.clock.now().then(t => update($, keep, x => ({ ...x, h: Number(v), editUntil: t + EDIT_MS }))) }} />
         <Text color={MUTED}> : </Text>
-        <Select key="keep-m" options={MINUTES} value={pad2(kp.m ?? 0)} onSelect={v => { void update($, keep, x => ({ ...x, m: Number(v) })) }} />
+        <Select key="keep-m" options={MINUTES} value={pad2(kp.m ?? 0)} onSelect={v => { void $.clock.now().then(t => update($, keep, x => ({ ...x, m: Number(v), editUntil: t + EDIT_MS }))) }} />
         <Box marginLeft={1}>
           <Button key="keep-set" label="Keep" onPress={() => { void read($, keep).then(x => keepNow(`${pad2(x.h ?? 0)}:${pad2(x.m ?? 0)}`)) }} />
         </Box>
@@ -445,7 +466,7 @@ export const register: Register = on => {
     const badge = Svg
       ? [
           keepToggle,
-          <Svg key="robo" source={roboSvg(mode, kp.on && !cold ? GREEN : undefined)} alt={cold ? 'Robo, frozen' : 'Robo, bobbing'} width={ROBO_SIZE} height={ROBO_SIZE} isInteractive />,
+          <Svg key="robo" source={roboSvg(mode, kp.on && !cold ? ((kp.until ?? 0) - now > LONG_MS ? YELLOW : GREEN) : undefined)} alt={cold ? 'Robo, frozen' : 'Robo, bobbing'} width={ROBO_SIZE} height={ROBO_SIZE} isInteractive />,
           <Text key="gap"> </Text>,
           (() => {
             const c = chipSvg(mode, chipWord)
@@ -536,8 +557,8 @@ export const register: Register = on => {
 
     return (
       <Box flexDirection="column" backgroundColor={BG} marginBottom={1}>
-        {rows}
         {keepRow}
+        {rows}
         {card}
       </Box>
     )
