@@ -11,7 +11,7 @@ export type Fold = { mode: 'warm' | 'cold'; open: boolean }
 export type Spend = { read: number; input: number }
 
 /** Keep-warm switch and ping count, the last cold flip announced, and whether the context nudge fired. */
-export type Keep = { on: boolean; pings: number; coldSeen: number; nudged: boolean }
+export type Keep = { on: boolean; pings: number; coldSeen: number; nudged: boolean; cap?: number }
 
 declare module 'claude-code' {
   interface PluginState {

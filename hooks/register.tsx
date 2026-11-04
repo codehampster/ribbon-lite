@@ -38,6 +38,9 @@ const keep = atom({ plugin: 'ribbon-lite', key: 'keep' } as const, { on: false, 
 // pings, so the switch turns itself off after KEEP_MAX pings (well under that).
 const KEEP_AT_MIN = 55
 const KEEP_MAX = 8
+/** Hours the toggle cycles through on each click, then back off. */
+const KEEP_STEPS = [2, 4, 8, 12]
+const capOf = (k: Keep): number => k.cap ?? KEEP_MAX
 const NUDGE_AT = 70
 const PING = 'Keep-warm ping from ribbon-lite: reply with just "ok".'
 
@@ -108,9 +111,9 @@ const watch = async ($: EngineInterface): Promise<void> => {
   const idleMin = (now - c.lastAt) / 60000
   const k = await read($, keep)
   if (k.on && idleMin >= KEEP_AT_MIN && idleMin < TTL_MIN) {
-    if (k.pings >= KEEP_MAX) {
+    if (k.pings >= capOf(k)) {
       await update($, keep, x => ({ ...x, on: false }))
-      $.ui.toast(`Keep-warm off after ${KEEP_MAX} pings: past here a cold restart is cheaper.`, { timeoutMs: 8000 })
+      $.ui.toast(`Keep-warm off after ${capOf(k)}h of pings.`, { timeoutMs: 8000 })
       return
     }
     await update($, keep, x => ({ ...x, pings: x.pings + 1 }))
@@ -347,8 +350,13 @@ export const register: Register = on => {
     const kp = await read($, keep)
     // Cold: nothing left to keep warm, so no toggle.
     const keepToggle = cold ? null : (
-      <Button key="keep" plain label={kp.on ? '◉' : '○'} dimColor={!kp.on}
-        onPress={() => update($, keep, x => ({ ...x, on: !x.on, pings: 0 }))} />
+      <Button key="keep" plain label={kp.on ? `◉${Math.max(0, capOf(kp) - kp.pings)}h` : '○'} dimColor={!kp.on}
+        onPress={() => update($, keep, x => {
+          // Each click steps 2h → 4h → 8h → 12h → off.
+          const i = x.on ? KEEP_STEPS.indexOf(capOf(x)) : -1
+          const step = KEEP_STEPS[i + 1]
+          return step ? { ...x, on: true, cap: step, pings: 0 } : { ...x, on: false, pings: 0 }
+        })} />
     )
     const badge = Svg
       ? [
